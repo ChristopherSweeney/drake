@@ -203,7 +203,8 @@ else:
 robot = station.get_controller_plant()
 params = DifferentialInverseKinematicsParameters(robot.num_positions(),
                                                  robot.num_velocities())
-
+print station.get_scene_graph()
+print "heheheheheheheheh"
 time_step = 0.005
 params.set_timestep(time_step)
 # True velocity limits for the IIWA14 (in rad, rounded down to the first

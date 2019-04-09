@@ -280,6 +280,7 @@ void ManipulationStation<T>::SetupDefaultStation(
 
   // Add default cameras.
   {
+    std::cout<<"setting up default cameras\n";
     std::map<std::string, RigidTransform<double>> camera_poses;
     internal::get_camera_poses(&camera_poses);
     // Typical D415 intrinsics for 848 x 480 resolution, note that rgb and
@@ -291,14 +292,15 @@ void ManipulationStation<T>::SetupDefaultStation(
     // - w: 848, h: 480, fx: 645.138, fy: 645.138, ppx: 420.789, ppy: 239.13
     // For this camera, we are going to assume that fx = fy, and we can compute
     // fov_y by: fy = height / 2 / tan(fov_y / 2)
-    const double kFocalY = 645.;
+    const double kFocalY = 528.0; 
     const int kHeight = 480;
-    const int kWidth = 848;
+    const int kWidth = 640;
     const double fov_y = std::atan(kHeight / 2. / kFocalY) * 2;
     geometry::dev::render::DepthCameraProperties camera_properties(
         kWidth, kHeight, fov_y, geometry::dev::render::Fidelity::kLow, 0.1,
         2.0);
     for (const auto& camera_pair : camera_poses) {
+      std::cout<<"camera_pair.second\n";
       RegisterRgbdCamera(camera_pair.first, plant_->world_frame(),
                          camera_pair.second, camera_properties);
     }

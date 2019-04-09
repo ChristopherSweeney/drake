@@ -13,6 +13,35 @@ specifically:
 *   src/app/ddBotImageQueue.cpp
 """
 
+#######################chris's imports#########################
+import os
+from scipy import misc
+from keras.preprocessing import image
+from keras.models import Sequential
+from keras.layers import Dense
+from keras.layers import Dropout
+from keras.layers import Flatten
+from keras.constraints import maxnorm
+from keras.optimizers import SGD
+from keras.layers.convolutional import Convolution2D
+from keras.layers.convolutional import MaxPooling2D
+from keras.layers import Activation
+from keras.layers import Reshape
+from keras.layers.convolutional import Conv2D
+from keras.layers import *
+from keras import Model
+from keras import optimizers
+from keras.callbacks import ModelCheckpoint, LearningRateScheduler
+import matplotlib.pyplot as plt
+from keras.utils import np_utils
+from keras import backend as K
+# import cv2
+# from sklearn.model_selection import train_test_split
+import noise
+# from scipy.misc import toimage
+
+#######################################################
+
 import sys
 import argparse
 import math
@@ -24,7 +53,7 @@ import numpy as np
 import numpy.matlib
 
 import vtk
-from vtk.util.numpy_support import vtk_to_numpy, get_vtk_array_type
+from vtk.util.numpy_support import vtk_to_numpy, get_vtk_array_type,numpy_to_vtk
 
 from director import applogic
 from director import consoleapp
@@ -74,6 +103,8 @@ class ImageWidget(object):
     `ImageWidget`.
     """
     def __init__(self, image_handler):
+        self.model_path = "/home/drc/Chris/DepthSim/python/models/net_depth_seg_v1.hdf5"
+        self.model = self.load_trained_model(weights_path = self.model_path)
         self._name = 'Image View'
         self._view = PythonQt.dd.ddQVTKWidgetView()
         self._image_handler = image_handler
@@ -103,6 +134,116 @@ class ImageWidget(object):
 
     def get_widget(self):
         return self._view
+    
+    # This is the better model
+    def create_model_2(self,img_height=480, img_width=640,channels=1):
+       inputs = Input((img_height, img_width,channels))
+       #crop = Cropping2D(cropping=((0, 0), (0, 0)), data_format=None)
+       conv1 = Conv2D(4, 3, activation = 'relu', padding = 'same', kernel_initializer = 'he_normal',data_format='channels_last')(inputs)
+       conv1 = Conv2D(4, 3, activation = 'relu', padding = 'same', kernel_initializer = 'he_normal',data_format='channels_last')(conv1)
+       pool1 = MaxPooling2D(pool_size=(2, 2),data_format='channels_last')(conv1)
+
+       conv2 = Conv2D(8, 3, activation = 'relu', padding = 'same', kernel_initializer = 'he_normal',data_format='channels_last')(pool1)
+       conv2 = Conv2D(8, 3, activation = 'relu', padding = 'same', kernel_initializer = 'he_normal',data_format='channels_last')(conv2)
+       pool2 = MaxPooling2D(pool_size=(2, 2),data_format='channels_last')(conv2)
+
+       conv3 = Conv2D(32, 3, activation = 'relu', padding = 'same', kernel_initializer = 'he_normal',data_format='channels_last')(pool2)
+       conv3 = Conv2D(32, 3, activation = 'relu', padding = 'same', kernel_initializer = 'he_normal',data_format='channels_last')(conv3)
+       pool3 = MaxPooling2D(pool_size=(2, 2),data_format='channels_last')(conv3)
+
+
+       conv5 = Conv2D(64, 3, activation = 'relu', padding = 'same', kernel_initializer = 'he_normal',data_format='channels_last')(pool3)
+       conv5 = Conv2D(64, 3, activation = 'relu', padding = 'same', kernel_initializer = 'he_normal',data_format='channels_last')(conv5)
+       drop5 = Dropout(0.5)(conv5)
+
+       up7 = Conv2D(32, 2, activation = 'relu', padding = 'same', kernel_initializer = 'he_normal',data_format='channels_last')(UpSampling2D(size = (2,2),data_format='channels_last')(conv5))
+       merge7 = merge([conv3,up7], mode = 'concat', concat_axis = 3)
+       conv7 = Conv2D(32, 3, activation = 'relu', padding = 'same', kernel_initializer = 'he_normal',data_format='channels_last')(merge7)
+       conv7 = Conv2D(32, 3, activation = 'relu', padding = 'same', kernel_initializer = 'he_normal',data_format='channels_last')(conv7)
+
+       up8 = Conv2D(8, 2, activation = 'relu', padding = 'same', kernel_initializer = 'he_normal',data_format='channels_last')(UpSampling2D(size = (2,2),data_format='channels_last')(conv7))
+       merge8 = merge([conv2,up8], mode = 'concat', concat_axis = 3)
+       conv8 = Conv2D(8, 3, activation = 'relu', padding = 'same', kernel_initializer = 'he_normal',data_format='channels_last')(merge8)
+       conv8 = Conv2D(8, 3, activation = 'relu', padding = 'same', kernel_initializer = 'he_normal',data_format='channels_last')(conv8)
+
+       up9 = Conv2D(4, 2, activation = 'relu', padding = 'same', kernel_initializer = 'he_normal',data_format='channels_last')(UpSampling2D(size = (2,2),data_format='channels_last')(conv8))
+       merge9 = merge([conv1,up9], mode = 'concat', concat_axis = 3)
+       conv9 = Conv2D(4, 3, activation = 'relu', padding = 'same', kernel_initializer = 'he_normal',data_format='channels_last')(merge9)
+       conv9 = Conv2D(4, 3, activation = 'relu', padding = 'same', kernel_initializer = 'he_normal',data_format='channels_last')(conv9)
+       conv9 = Conv2D(2, 3, activation = 'relu', padding = 'same', kernel_initializer = 'he_normal',data_format='channels_last')(conv9)
+       conv10 = Conv2D(1, 1, activation = 'sigmoid',data_format='channels_last')(conv9)
+
+       model = Model(input = inputs, output = conv10)
+
+       return model
+    
+    def corrupt(self,image):
+        np_image = vtk_image_to_numpy(image).astype(np.float32)/3500.
+        threshold = .5
+        img_height,img_width = (480,640)
+        stack = np.zeros((1,img_height,img_width,1)) 
+        stack[0,:,:,:] = np_image
+        predicted_prob_map = self.model.predict_on_batch(stack)
+        im_final = self.apply_mask_simple(predicted_prob_map,np_image[:,:,0],.5)
+        # im_final[im_final>1] = 1
+        # plt.imshow(im_final)
+        # plt.show()
+        # self.apply_mask(predicted_prob_map,np_image[:,:,0],threshold)
+        #depthsim_source+= (max_range * min_range) / (max_range + np.random.randn(camera_height, camera_width)*rgbd_noise * (min_range - max_range))
+        corrupt_vtk_img = vtk.vtkImageData()
+        corrupt_vtk_img.SetDimensions(im_final.shape[1], im_final.shape[0], 1)
+        im_final = im_final.reshape(640,480).swapaxes(0,1)*3500
+        im_final = im_final.astype(np.uint16)
+        vtkarr = numpy_to_vtk(np.flip(im_final.reshape(640,480).swapaxes(0,1)*3500, axis=1).reshape((-1, 1), order='F'))
+        vtkarr.SetName('Image')
+        corrupt_vtk_img.GetPointData().AddArray(vtkarr)
+        corrupt_vtk_img.GetPointData().SetActiveScalars('Image')
+        # corrupt_vtk_img = create_image(640, 480, 1, dtype=np.float32)
+        # corrupt_vtk_img.SetDimensions((640,480,1))
+
+        # corrupt_vtk_img.GetPointData().SetScalars(corrupt_vtk_array)
+    #     w, h = image.SetDimensions()[:2]
+    # num_channels = image.GetNumberOfScalarComponents()
+    # return (h, w, num_channels)
+        return corrupt_vtk_img
+
+    def load_trained_model(self,weights_path):
+       model = self.create_model_2(channels=1)# only train on depth images
+       model.load_weights(weights_path)
+       return model
+    def apply_mask(self, mask,depth,threshold):
+       epsilon = .05
+       h,w = np.shape(depth)
+       mask = np.reshape(mask,(h,w))
+       depth[mask>threshold]=0
+       #img = np.random.random((480,640))
+       img = self.sigmoid(self.perlin_map(scale=20.0,octaves = 7,base= np.random.randint(1000),lacunarity = 6.0))
+       stochastic_mask = mask>=img
+       #stochastic_mask = np.logical_and(np.logical_and((mask<=threshold), mask>epsilon), img<threshold)
+       depth[stochastic_mask] = 0
+
+    def apply_mask_simple(self, mask,depth,threshold):
+       h,w = np.shape(depth)
+       mask = np.reshape(mask,(h,w))
+       depth[mask>threshold]=0
+       return depth
+    def perlin_map(self,shape = (480,640),scale = 10.0,octaves = 6,persistence = 0.5,lacunarity = 2.0,base = 0):
+        img = np.zeros(shape)
+        #this is a bottle neck for real time performance: this takes .3 seconds per image
+        for i in range(shape[0]):
+            for j in range(shape[1]):
+                img[i][j] = noise.pnoise2(i/scale, 
+                                           j/scale, 
+                                           octaves=octaves, 
+                                           persistence=persistence, 
+                                           lacunarity=lacunarity, 
+                                           repeatx=shape[1], 
+                                           repeaty=shape[0], 
+                                           base=base)
+        return img
+
+    def sigmoid(self,x):
+        return 1. / (1 + np.exp(-10*x))
 
     def render(self):
         if not self._view.isVisible():
@@ -112,7 +253,7 @@ class ImageWidget(object):
         assert isinstance(has_new, bool)
         if not has_new:
             return
-
+        self._image = self.corrupt(self._image)
         cur_attrib = get_vtk_image_attrib(self._image)
         if self._prev_attrib != cur_attrib:
             if self._prev_attrib is None:
@@ -315,7 +456,6 @@ def vtk_image_to_numpy(image):
     data.shape = get_vtk_image_shape(image)
     return data
 
-
 def get_vtk_image_shape(image):
     """
     Gets `(h, w, num_channels)`.
@@ -452,7 +592,6 @@ class LcmImageArraySubscriber(object):
 
     def _on_message(self, msg):
         issues = []
-
         msg_frame_names = [image.header.frame_name for image in msg.images]
         for (frame_name, handler) in self._handlers.iteritems():
             if frame_name not in msg_frame_names:

@@ -27,7 +27,7 @@ using Eigen::VectorXd;
 DEFINE_double(target_realtime_rate, 1.0,
               "Playback speed.  See documentation for "
               "Simulator::set_target_realtime_rate() for details.");
-DEFINE_double(duration, 4.0, "Simulation duration.");
+DEFINE_double(duration, 100.0, "Simulation duration.");
 DEFINE_bool(test, false, "Disable random initial conditions in test mode.");
 
 int do_main(int argc, char* argv[]) {
@@ -37,7 +37,7 @@ int do_main(int argc, char* argv[]) {
 
   // Create the "manipulation station".
   auto station = builder.AddSystem<ManipulationStation>();
-  station->SetupClutterClearingStation();
+  station->SetupDefaultStation();
   station->Finalize();
 
   geometry::ConnectDrakeVisualizer(&builder, station->get_mutable_scene_graph(),
@@ -52,9 +52,9 @@ int do_main(int argc, char* argv[]) {
   for (const auto& name : station->get_camera_names()) {
     const auto& cam_port =
         image_to_lcm_image_array
-            ->DeclareImageInputPort<systems::sensors::PixelType::kRgba8U>(
+            ->DeclareImageInputPort<systems::sensors::PixelType::kDepth16U>(
                 "camera_" + name);
-    builder.Connect(station->GetOutputPort("camera_" + name + "_rgb_image"),
+    builder.Connect(station->GetOutputPort("camera_" + name + "_depth_image"),
                     cam_port);
   }
   auto image_array_lcm_publisher = builder.template AddSystem(
